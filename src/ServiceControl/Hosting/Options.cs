@@ -128,6 +128,7 @@
 
 
 
+// ReSharper disable AutoPropertyCanBeMadeGetOnly.Local
 #if LINQ
 using System.Linq;
 #endif

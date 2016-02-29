@@ -6,6 +6,7 @@
     using System.IO;
     using Autofac;
     using global::Nancy.Owin;
+    using Hystrix.Dashboard;
     using Microsoft.AspNet.SignalR;
     using Microsoft.Owin.Cors;
     using Newtonsoft.Json;
@@ -34,6 +35,8 @@
         public void Configuration(IAppBuilder app)
         {
             app.UseErrorPage();
+
+			app.UseHystrixDashboard();
 
             app.Map("/api", b =>
             {

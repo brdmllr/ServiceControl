@@ -15,7 +15,7 @@ namespace Hystrix.MetricsEventStream
 
         protected override void Setup(FeatureConfigurationContext context)
         {
-            context.Container.ConfigureComponent(builder => new HystrixMetricsStreamServer(builder.Build<TimeKeeper>(), "http://localhost:8087/Hystrix"), DependencyLifecycle.SingleInstance);
+            context.Container.ConfigureComponent(builder => new HystrixMetricsStreamServer(builder.Build<TimeKeeper>(), "http://localhost:8087/Hystrix/"), DependencyLifecycle.SingleInstance);
 
         }
     }

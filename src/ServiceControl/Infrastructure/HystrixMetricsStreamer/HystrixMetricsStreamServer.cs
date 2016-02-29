@@ -20,7 +20,7 @@
 
         private HystrixMetricsSampler sampler;
 
-        private ConcurrentBag<HystrixMetricsStreamer> streamers = new ConcurrentBag<HystrixMetricsStreamer>();
+        private ConcurrentDictionary<HystrixMetricsStreamer, object> streamers = new ConcurrentDictionary<HystrixMetricsStreamer, object>();
         private Task messagePumpTask;
 
         public HystrixMetricsStreamServer(TimeKeeper timeKeeper, string httpListenerPrefix)
@@ -60,9 +60,9 @@
             listener?.Close();
             sampler?.Stop();
 
-            foreach (var s in streamers)
+            foreach (var keyValuePair in streamers)
             {
-                s.Stop();
+                keyValuePair.Key.Stop();
             }
 
             messagePumpTask.Wait();
@@ -72,21 +72,53 @@
         {
             while (!cancellationTokenSource.IsCancellationRequested)
             {
-                var context = await listener.GetContextAsync().ConfigureAwait(false);
-
-                if (cancellationTokenSource.IsCancellationRequested)
+                try
                 {
-                    return;
-                }
+                    var context = await listener.GetContextAsync().ConfigureAwait(false);
 
-                CreateAndStartStreamer(context);
+                    if (cancellationTokenSource.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    CreateAndStartStreamer(context);
+                }
+                catch (HttpListenerException ex)
+                {
+                    // a HttpListenerException can occur on listener.GetContext when we shutdown. this can be ignored
+                    if (!cancellationTokenSource.IsCancellationRequested)
+                    {
+                        Logger.Error("Stream server failed to receive incoming request.", ex);
+                    }
+                    break;
+                }
+                catch (ObjectDisposedException ex)
+                {
+                    // a ObjectDisposedException can occur on listener.GetContext when we shutdown. this can be ignored
+                    if (!cancellationTokenSource.IsCancellationRequested && ex.ObjectName == typeof(HttpListener).FullName)
+                    {
+                        Logger.Error("Stream server failed to receive incoming request.", ex);
+                    }
+                    break;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Logger.Error("Stream server failed to receive incoming request.", ex);
+                    break;
+                }
             }
         }
 
         private void CreateAndStartStreamer(HttpListenerContext context)
         {
-            var streamer = new HystrixMetricsStreamer(sampler, timeKeeper, context);
-            streamers.Add(streamer);
+            var streamer = new HystrixMetricsStreamer(sampler, timeKeeper, context, s =>
+            {
+                object _;
+                streamers.TryRemove(s, out _);
+                s.Stop();
+            });
+
+            streamers.TryAdd(streamer, null);
             streamer.Start();
         }
     }
