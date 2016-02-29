@@ -5,6 +5,7 @@
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Netflix.Hystrix;
     using NServiceBus;
     using NServiceBus.CircuitBreakers;
     using NServiceBus.Features;
@@ -92,28 +93,7 @@
                         Logger.DebugFormat("Publishing external event on the bus.");
                     }
 
-                    try
-                    {
-                        Bus.Publish(eventToBePublished);
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.Error("Failed dispatching external integration event.", e);
-
-                        var publishedEvent = eventToBePublished;
-                        Bus.Publish<ExternalIntegrationEventFailedToBePublished>(m =>
-                        {
-                            m.EventType = publishedEvent.GetType();
-                            try
-                            {
-                                m.Reason = e.GetBaseException().Message;
-                            }
-                            catch (Exception)
-                            {
-                                m.Reason = "Failed to retrieve reason!";
-                            }
-                        });
-                    }
+                    new Publisher(Bus, eventToBePublished, Logger).Execute();
                 }
                 foreach (var dispatchedEvent in awaitingDispatching)
                 {
@@ -123,6 +103,59 @@
             }
 
             return false;
+        }
+
+        class Publisher : HystrixCommand<bool>
+        {
+            private readonly IBus bus;
+            private readonly object eventToDispatch;
+            private readonly ILog log;
+            private Exception ex;
+
+            public Publisher(IBus bus, object eventToDispatch, ILog log) : base(HystrixCommandSetter.WithGroupKey("EventDispatcher")
+                .AndCommandKey("Publisher")
+                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter()))
+            {
+                this.bus = bus;
+                this.eventToDispatch = eventToDispatch;
+                this.log = log;
+            }
+
+            protected override bool Run()
+            {
+                try
+                {
+                    bus.Publish(eventToDispatch);
+                }
+                catch (Exception e)
+                {
+                    ex = e;
+                    throw;
+                }
+
+                return true;
+            }
+
+            protected override bool GetFallback()
+            {
+                log.Error("Failed dispatching external integration event.", ex);
+
+                var publishedEvent = eventToDispatch;
+                bus.Publish<ExternalIntegrationEventFailedToBePublished>(m =>
+                {
+                    m.EventType = publishedEvent.GetType();
+                    try
+                    {
+                        m.Reason = ex.GetBaseException().Message;
+                    }
+                    catch (Exception)
+                    {
+                        m.Reason = "Failed to retrieve reason!";
+                    }
+                });
+
+                return true;
+            }
         }
 
         CancellationTokenSource tokenSource;
