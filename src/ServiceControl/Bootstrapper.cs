@@ -44,11 +44,15 @@ namespace Particular.ServiceControl
         {
             this.host = host;
             this.configuration = configuration;
+            LogManager.Use<NLogFactory>();
 
             // ServiceName is required to determine the default logging path
             LoggingSettings.ServiceName = DetermineServiceName(host, hostArguments);
 
             logger = ConfigureLogging();
+
+            Settings.ServiceName = LoggingSettings.ServiceName;
+
 
             Settings.ServiceName = DetermineServiceName(host, hostArguments);
 
@@ -179,6 +183,7 @@ namespace Particular.ServiceControl
                         Id = "ServiceControl",
                         Settings =
                         {
+                            {"Raven/ActiveBundles", "CustomDocumentExpiration"},
                             {"Raven/StorageTypeName", "esent"},
                             {"Raven/DataDir", Path.Combine(Settings.DbPath, "Databases", "ServiceControl")},
                             {"Raven/Counters/DataDir", Path.Combine(Settings.DbPath, "Data", "Counters")},

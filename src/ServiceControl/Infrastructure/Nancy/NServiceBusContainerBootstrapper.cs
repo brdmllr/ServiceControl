@@ -100,5 +100,10 @@
         }
 
         static ILog Logger = LogManager.GetLogger(typeof(NServiceBusContainerBootstrapper));
+
+        public NServiceBusContainerBootstrapper(IContainer container)
+        {
+            this.container = container;
+        }
     }
 }
