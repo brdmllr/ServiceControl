@@ -309,6 +309,7 @@
     <Compile Include="Infrastructure\RavenDB\Expiration\Chunker.cs" />
     <Compile Include="Infrastructure\RavenDB\Expiration\ErrorMessageCleaner.cs" />
     <Compile Include="Infrastructure\RavenDB\Expiration\ExpiryErrorMessageIndex.cs" />
+    <Compile Include="Infrastructure\RavenDB\Expiration\ExtractPreviouslyFailedMessagesBundle.cs" />
     <Compile Include="Infrastructure\Settings\LoggingSettings.cs" />
     <Compile Include="Infrastructure\ShutdownNotifier.cs" />
     <Compile Include="Infrastructure\OWIN\ApiLogger.cs" />
