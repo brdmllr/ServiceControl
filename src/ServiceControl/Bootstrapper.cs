@@ -44,7 +44,6 @@ namespace Particular.ServiceControl
         {
             this.host = host;
             this.configuration = configuration;
-            LogManager.Use<NLogFactory>();
 
             // ServiceName is required to determine the default logging path
             LoggingSettings.ServiceName = DetermineServiceName(host, hostArguments);
