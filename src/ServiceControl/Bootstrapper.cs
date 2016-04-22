@@ -68,7 +68,7 @@ namespace Particular.ServiceControl
             containerBuilder.RegisterInstance(documentStore).As<IDocumentStore>().ExternallyOwned();
 
             container = containerBuilder.Build();
-            startup = new Startup(container);
+            startup = new Startup(container, timeKeeper);
         }
 
         private void ConfigureNServiceBus()

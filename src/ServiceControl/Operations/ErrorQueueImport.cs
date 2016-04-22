@@ -6,6 +6,7 @@
     using System.Linq;
     using System.Threading;
     using Contracts.Operations;
+    using Netflix.Hystrix;
     using NServiceBus;
     using NServiceBus.Logging;
     using NServiceBus.ObjectBuilder;
@@ -28,51 +29,74 @@
         public LogicalMessageFactory LogicalMessageFactory { get; set; }
         public CriticalError CriticalError { get; set; }
 
-        public bool Handle(TransportMessage message)
+        class Importer : HystrixCommand<bool>
         {
-            InnerHandle(message);
+            private readonly TransportMessage message;
+            private readonly IBuilder builder;
+            private readonly PipelineExecutor pipelineExecutor;
+            private readonly LogicalMessageFactory logicalMessageFactory;
+            private readonly ISendMessages forwarder;
 
-            return true;
-        }
+            public Importer(TransportMessage message, IBuilder builder, PipelineExecutor pipelineExecutor, LogicalMessageFactory logicalMessageFactory, ISendMessages forwarder) : base(HystrixCommandSetter.WithGroupKey("Importer")
+                .AndCommandKey("ErrorQueue")
+                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationThreadTimeout(TimeSpan.FromSeconds(30))))
 
-        void InnerHandle(TransportMessage message)
-        {
-            var errorMessageReceived = new ImportFailedMessage(message);
-
-            using (var childBuilder = Builder.CreateChildBuilder())
             {
-                PipelineExecutor.CurrentContext.Set(childBuilder);
+                this.message = message;
+                this.builder = builder;
+                this.pipelineExecutor = pipelineExecutor;
+                this.logicalMessageFactory = logicalMessageFactory;
+                this.forwarder = forwarder;
+            }
 
-                foreach (var enricher in childBuilder.BuildAll<IEnrichImportedMessages>())
+            protected override bool Run()
+            {
+                var errorMessageReceived = new ImportFailedMessage(message);
+
+                using (var childBuilder = builder.CreateChildBuilder())
                 {
-                    enricher.Enrich(errorMessageReceived);
-                }
+                    pipelineExecutor.CurrentContext.Set(childBuilder);
 
-                var logicalMessage = LogicalMessageFactory.Create(errorMessageReceived);
+                    foreach (var enricher in childBuilder.BuildAll<IEnrichImportedMessages>())
+                    {
+                        enricher.Enrich(errorMessageReceived);
+                    }
 
-                var context = new IncomingContext(PipelineExecutor.CurrentContext, message)
-                {
-                    LogicalMessages = new List<LogicalMessage>
+                    var logicalMessage = logicalMessageFactory.Create(errorMessageReceived);
+
+                    var context = new IncomingContext(pipelineExecutor.CurrentContext, message)
+                    {
+                        LogicalMessages = new List<LogicalMessage>
                     {
                         logicalMessage
                     },
-                    IncomingLogicalMessage = logicalMessage
-                };
+                        IncomingLogicalMessage = logicalMessage
+                    };
 
-                context.Set("NServiceBus.CallbackInvocationBehavior.CallbackWasInvoked", false);
-               
-                var behaviors = behavioursToAddFirst.Concat(PipelineExecutor.Incoming.SkipWhile(r => r.StepId != WellKnownStep.LoadHandlers).Select(r => r.BehaviorType));
+                    context.Set("NServiceBus.CallbackInvocationBehavior.CallbackWasInvoked", false);
 
-                PipelineExecutor.InvokePipeline(behaviors, context);
+                    var behaviors = behavioursToAddFirst.Concat(pipelineExecutor.Incoming.SkipWhile(r => r.StepId != WellKnownStep.LoadHandlers).Select(r => r.BehaviorType));
+
+                    pipelineExecutor.InvokePipeline(behaviors, context);
+                }
+                if (Settings.ForwardErrorMessages)
+                {
+                    TransportMessageCleaner.CleanForForwarding(message);
+                    forwarder.Send(message, new SendOptions(Settings.ErrorLogQueue));
+                }
+
+                return true;
             }
-            if (Settings.ForwardErrorMessages)
-            {
-                TransportMessageCleaner.CleanForForwarding(message);
-                Forwarder.Send(message, new SendOptions(Settings.ErrorLogQueue));
-            }
+
+            Type[] behavioursToAddFirst = { typeof(RavenUnitOfWorkBehavior) };
         }
 
-        Type[] behavioursToAddFirst = new[] { typeof(RavenUnitOfWorkBehavior) };
+        public bool Handle(TransportMessage message)
+        {
+            new Importer(message, Builder, PipelineExecutor, LogicalMessageFactory, Forwarder).Execute();
+
+            return true;
+        }
 
         public void Start()
         {
@@ -125,10 +149,7 @@
 
         public void Dispose()
         {
-            if (satelliteImportFailuresHandler != null)
-            {
-                satelliteImportFailuresHandler.Dispose();
-            }
+            satelliteImportFailuresHandler?.Dispose();
         }
 
         SatelliteImportFailuresHandler satelliteImportFailuresHandler;

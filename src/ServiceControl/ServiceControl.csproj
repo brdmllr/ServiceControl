@@ -376,11 +376,10 @@
     </Compile>
     <Compile Include="Hosting\HostArguments.cs" />
     <Compile Include="Hosting\Options.cs" />
+    <Compile Include="Infrastructure\HystrixMetricsStreamer\HystrixExtension.cs" />
     <Compile Include="Infrastructure\HystrixMetricsStreamer\HystrixMetricsSampler.cs" />
     <Compile Include="Infrastructure\HystrixMetricsStreamer\HystrixMetricsStreamer.cs" />
-    <Compile Include="Infrastructure\HystrixMetricsStreamer\HystrixMetricsStreamServer.cs" />
     <Compile Include="Infrastructure\HystrixMetricsStreamer\SampleDataAvailableEventArgs.cs" />
-    <Compile Include="Infrastructure\HystrixMetricsStreamer\Hystrix.cs" />
     <Compile Include="Infrastructure\Installers\UrlAcl\Api\ErrorCode.cs" />
     <Compile Include="Infrastructure\Installers\UrlAcl\Api\HttpApi.cs" />
     <Compile Include="Infrastructure\Installers\UrlAcl\Api\HttpApiConstants.cs" />

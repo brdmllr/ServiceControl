@@ -4,101 +4,83 @@
     using System.Collections.Concurrent;
     using System.Globalization;
     using System.IO;
-    using System.Net;
     using System.Threading;
+    using System.Threading.Tasks;
+    using Microsoft.Owin;
     using slf4net;
     using ServiceControl.Infrastructure;
 
-    class HystrixMetricsStreamer
+    class HystrixStreamerMiddleware : OwinMiddleware
     {
-        private static readonly TimeSpan DefaultSendInterval = TimeSpan.FromSeconds(1);
-        private static readonly ILogger Logger = LoggerFactory.GetLogger(typeof(HystrixMetricsStreamer));
-        static readonly TimeSpan SpinFor = TimeSpan.FromSeconds(1);
-
+        private readonly HystrixMetricsSampler sampler;
         private readonly TimeKeeper timeKeeper;
-
-        private HttpListenerContext context;
-        private readonly Action<HystrixMetricsStreamer> disconnected;
+        static readonly TimeSpan SpinFor = TimeSpan.FromSeconds(1);
         private ConcurrentQueue<string> metricsDataQueue = new ConcurrentQueue<string>();
-        private HystrixMetricsSampler sampler;
-        private bool stopping;
-        private Timer timer;
 
-        public HystrixMetricsStreamer(HystrixMetricsSampler sampler, TimeKeeper timeKeeper, HttpListenerContext context, Action<HystrixMetricsStreamer> disconnected)
+        public HystrixStreamerMiddleware(OwinMiddleware next, TimeKeeper timeKeeper) : base(next)
         {
-            this.sampler = sampler;
             this.timeKeeper = timeKeeper;
-            this.context = context;
-            this.disconnected = disconnected;
+            sampler = new HystrixMetricsSampler(timeKeeper);
+            sampler.Start();
         }
 
-        public void Start()
+        public override Task Invoke(IOwinContext context)
         {
             sampler.SampleDataAvailable += Sampler_SampleDataAvailable;
 
-            timer = timeKeeper.New(DoWork, TimeSpan.Zero, GetSendInterval());
-        }
+            var owinCallCancelled = context.Get<CancellationToken>("owin.CallCancelled");
+            var tcs = new TaskCompletionSource<int>();
+            var timer = timeKeeper.New(() => SendStats(context, owinCallCancelled, tcs), TimeSpan.Zero, GetSendInterval(context));
 
-        public void Stop()
-        {
-            stopping = true;
-            sampler.SampleDataAvailable -= Sampler_SampleDataAvailable;
-
-            timeKeeper.Release(timer);
-        }
-
-        /// <inheritdoc />
-        void DoWork()
-        {
-            try
+            owinCallCancelled.Register(() =>
             {
-                context.Response.AppendHeader("Content-Type", "text/event-stream;charset=UTF-8");
-                context.Response.AppendHeader("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate");
-                context.Response.AppendHeader("Pragma", "no-cache");
-                //context.Response.AppendHeader("Access-Control-Expose-Headers", "ETag, Last-Modified, Link, Total-Count, X-Particular-Version");
-                //context.Response.AppendHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-                context.Response.AppendHeader("Access-Control-Allow-Methods", "GET");
-                context.Response.AppendHeader("Access-Control-Allow-Origin", "*");
+                sampler.SampleDataAvailable -= Sampler_SampleDataAvailable;
 
-                using (var outputWriter = new StreamWriter(context.Response.OutputStream))
+                timeKeeper.Release(timer);
+
+                tcs.SetResult(1);
+            });
+
+            return tcs.Task;
+        }
+
+        private void SendStats(IOwinContext context, CancellationToken owinCallCancelled, TaskCompletionSource<int> tcs)
+        {
+            context.Response.Headers["Content-Type"] = "text/event-stream;charset=UTF-8";
+            context.Response.Headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate";
+            context.Response.Headers["Pragma"] = "no-cache";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET";
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+            using (var outputWriter = new StreamWriter(context.Response.Body))
+            {
+                while (!owinCallCancelled.IsCancellationRequested)
                 {
-                    while (!stopping)
+                    string data;
+                    if (metricsDataQueue.TryDequeue(out data))
                     {
-                        string data;
-                        if (metricsDataQueue.TryDequeue(out data))
-                        {
-                            outputWriter.WriteLine("data: {0}\n", data);
+                        outputWriter.WriteLine("data: {0}\n", data);
 
-                            outputWriter.Flush();
+                        outputWriter.Flush();
 
-                            continue;
-                        }
-
-                        SpinWait.SpinUntil(() => stopping, SpinFor);
+                        continue;
                     }
-                }
 
-                context.Response.Close();
+                    SpinWait.SpinUntil(() => owinCallCancelled.IsCancellationRequested, SpinFor);
+                }
             }
-            catch (HttpListenerException ex)
-            {
-                Logger.Info(ex, "Streaming connection closed by client.");
-                disconnected(this);
-            }
-            
+
+            tcs.SetResult(1);
         }
 
-        /// <summary>
-        ///     Extracts the sending time interval from the HTTP request.
-        /// </summary>
-        /// <returns>The time interval between sending new metrics data.</returns>
-        private TimeSpan GetSendInterval()
+        private TimeSpan GetSendInterval(IOwinContext context)
         {
-            TimeSpan sendInterval = DefaultSendInterval;
-            if (context.Request.QueryString["delay"] != null)
+            var sendInterval = DefaultSendInterval;
+
+            if (context.Request.Query["delay"] != null)
             {
                 int streamDelayInMilliseconds;
-                if (int.TryParse(context.Request.QueryString["delay"], out streamDelayInMilliseconds))
+                if (int.TryParse(context.Request.Query["delay"], out streamDelayInMilliseconds))
                 {
                     sendInterval = TimeSpan.FromMilliseconds(streamDelayInMilliseconds);
                 }
@@ -110,6 +92,10 @@
 
             return sendInterval;
         }
+
+        private static readonly TimeSpan DefaultSendInterval = TimeSpan.FromSeconds(1);
+
+        private static readonly ILogger Logger = LoggerFactory.GetLogger(typeof(HystrixStreamerMiddleware));
 
         private void Sampler_SampleDataAvailable(object sender, SampleDataAvailableEventArgs e)
         {

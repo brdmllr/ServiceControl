@@ -152,7 +152,7 @@
 
         public void Start()
         {
-            timer = timeKeeper.New(DoWork, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+            timer = timeKeeper.New(DoWork, TimeSpan.Zero, TimeSpan.FromMilliseconds(200));
         }
 
         public void Stop()

@@ -111,9 +111,9 @@
             private readonly object eventToDispatch;
             private readonly ILog log;
 
-            public Publisher(IBus bus, object eventToDispatch, ILog log) : base(HystrixCommandSetter.WithGroupKey("EventDispatcher")
-                .AndCommandKey("Publisher")
-                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter()))
+            public Publisher(IBus bus, object eventToDispatch, ILog log) : base(HystrixCommandSetter.WithGroupKey("ThirdPartyIntegration")
+                .AndCommandKey("EventDispatcher")
+                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationThreadTimeout(TimeSpan.FromSeconds(30))))
             {
                 this.bus = bus;
                 this.eventToDispatch = eventToDispatch;

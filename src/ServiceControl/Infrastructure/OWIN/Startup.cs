@@ -17,6 +17,7 @@
     using Raven.Database.Server;
     using ServiceBus.Management.Infrastructure.Nancy;
     using ServiceBus.Management.Infrastructure.Settings;
+    using ServiceControl.Infrastructure;
     using ServiceControl.Infrastructure.OWIN;
     using ServiceControl.Infrastructure.SignalR;
 
@@ -25,18 +26,21 @@
         static readonly ILog Logger = LogManager.GetLogger(typeof(Startup));
 
         private IContainer container;
+        private readonly TimeKeeper timeKeeper;
 
-
-        public Startup(IContainer container)
+        public Startup(IContainer container, TimeKeeper timeKeeper)
         {
             this.container = container;
+            this.timeKeeper = timeKeeper;
         }
 
         public void Configuration(IAppBuilder app)
         {
             app.UseErrorPage();
 
-			app.UseHystrixDashboard();
+            app.Map("/hystrix", b => b.UseHystrixDashboard());
+
+            app.Map("/hystrixstreamer", b => b.UseHystrixStreamer( timeKeeper));
 
             app.Map("/api", b =>
             {

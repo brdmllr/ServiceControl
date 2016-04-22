@@ -1,6 +1,5 @@
 ﻿namespace Hystrix.Dashboard
 {
-    using Microsoft.Owin;
     using Microsoft.Owin.FileSystems;
     using Microsoft.Owin.StaticFiles;
     using Owin;
@@ -21,7 +20,6 @@
             {
                 "index.html"
             };
-            options.RequestPath = new PathString("/hystrix");
 
             app.UseFileServer(options);
 
