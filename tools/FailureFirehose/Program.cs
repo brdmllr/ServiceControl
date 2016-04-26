@@ -16,7 +16,7 @@ namespace FailureFirehose
     internal class Program
     {
         public const int MAX_BODY_SIZE = 10000;
-        public const int MESSAGE_COUNT = 350;
+        public const int MESSAGE_COUNT = 50;
         public const int FAILURE_PERCENTAGE = 5;
         public const int FAILURE_THRESHOLD = (int)(MESSAGE_COUNT * (FAILURE_PERCENTAGE / 100m));
 

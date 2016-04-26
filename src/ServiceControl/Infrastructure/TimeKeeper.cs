@@ -55,8 +55,10 @@
         public void Release(Timer timer)
         {
             object _;
-            timers.TryRemove(timer, out _);
-            WaitAndDispose(timer);
+            if (timers.TryRemove(timer, out _))
+            {
+                WaitAndDispose(timer);
+            }
         }
 
         public void Dispose()

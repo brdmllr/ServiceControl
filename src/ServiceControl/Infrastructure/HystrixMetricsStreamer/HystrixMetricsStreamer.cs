@@ -4,6 +4,8 @@
     using System.Collections.Concurrent;
     using System.Globalization;
     using System.IO;
+    using System.Reactive.Concurrency;
+    using System.Reactive.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Owin;
@@ -12,39 +14,48 @@
 
     class HystrixStreamerMiddleware : OwinMiddleware
     {
+        private readonly OwinMiddleware next;
+        private static readonly TimeSpan DefaultSendInterval = TimeSpan.FromSeconds(1);
+        private static readonly ILogger Logger = LoggerFactory.GetLogger(typeof(HystrixStreamerMiddleware));
         private readonly HystrixMetricsSampler sampler;
-        private readonly TimeKeeper timeKeeper;
-        static readonly TimeSpan SpinFor = TimeSpan.FromSeconds(1);
         private ConcurrentQueue<string> metricsDataQueue = new ConcurrentQueue<string>();
+        private CancellationTokenSource shutdownTokenSource = new CancellationTokenSource();
 
-        public HystrixStreamerMiddleware(OwinMiddleware next, TimeKeeper timeKeeper) : base(next)
+        public HystrixStreamerMiddleware(OwinMiddleware next, TimeKeeper timeKeeper, ShutdownNotifier notifier) : base(next)
         {
-            this.timeKeeper = timeKeeper;
+            this.next = next;
             sampler = new HystrixMetricsSampler(timeKeeper);
             sampler.Start();
+            notifier.Register(() =>
+            {
+                sampler.Stop();
+                shutdownTokenSource.Cancel();
+            });
         }
 
-        public override Task Invoke(IOwinContext context)
+        public override async Task Invoke(IOwinContext context)
         {
-            sampler.SampleDataAvailable += Sampler_SampleDataAvailable;
+            if (context.Request.Accept != "text/event-stream")
+            {
+                context.Response.StatusCode = 400;
+                await next.Invoke(context);
+                return;
+            }
 
             var owinCallCancelled = context.Get<CancellationToken>("owin.CallCancelled");
-            var tcs = new TaskCompletionSource<int>();
-            var timer = timeKeeper.New(() => SendStats(context, owinCallCancelled, tcs), TimeSpan.Zero, GetSendInterval(context));
+            var taskCompletionResult = new TaskCompletionSource<int>();
+            var token = CancellationTokenSource.CreateLinkedTokenSource(shutdownTokenSource.Token, owinCallCancelled).Token;
 
-            owinCallCancelled.Register(() =>
+            using (sampler.SampleData.ObserveOn(DefaultScheduler.Instance).Subscribe(data => metricsDataQueue.Enqueue(data)))
+            using (var task = Task.Run(() => SendStats(context, token), CancellationToken.None))
+            using (token.Register(() => CleanUp(taskCompletionResult, task)))
             {
-                sampler.SampleDataAvailable -= Sampler_SampleDataAvailable;
-
-                timeKeeper.Release(timer);
-
-                tcs.SetResult(1);
-            });
-
-            return tcs.Task;
+                await taskCompletionResult.Task;
+                await next.Invoke(context);
+            }
         }
 
-        private void SendStats(IOwinContext context, CancellationToken owinCallCancelled, TaskCompletionSource<int> tcs)
+        private void SendStats(IOwinContext context, CancellationToken cancellationToken)
         {
             context.Response.Headers["Content-Type"] = "text/event-stream;charset=UTF-8";
             context.Response.Headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate";
@@ -54,26 +65,31 @@
 
             using (var outputWriter = new StreamWriter(context.Response.Body))
             {
-                while (!owinCallCancelled.IsCancellationRequested)
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     string data;
                     if (metricsDataQueue.TryDequeue(out data))
                     {
-                        outputWriter.WriteLine("data: {0}\n", data);
+                        outputWriter.WriteLine($"data: {data}\n");
 
                         outputWriter.Flush();
 
                         continue;
                     }
 
-                    SpinWait.SpinUntil(() => owinCallCancelled.IsCancellationRequested, SpinFor);
+                    SpinWait.SpinUntil(() => cancellationToken.IsCancellationRequested, GetSendInterval(context));
                 }
             }
+        }
+
+        private static void CleanUp(TaskCompletionSource<int> tcs, Task task)
+        {
+            task.Wait();
 
             tcs.SetResult(1);
         }
 
-        private TimeSpan GetSendInterval(IOwinContext context)
+        private static TimeSpan GetSendInterval(IOwinContext context)
         {
             var sendInterval = DefaultSendInterval;
 
@@ -91,18 +107,6 @@
             }
 
             return sendInterval;
-        }
-
-        private static readonly TimeSpan DefaultSendInterval = TimeSpan.FromSeconds(1);
-
-        private static readonly ILogger Logger = LoggerFactory.GetLogger(typeof(HystrixStreamerMiddleware));
-
-        private void Sampler_SampleDataAvailable(object sender, SampleDataAvailableEventArgs e)
-        {
-            foreach (var data in e.Data)
-            {
-                metricsDataQueue.Enqueue(data);
-            }
         }
     }
 }

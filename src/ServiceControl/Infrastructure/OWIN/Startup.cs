@@ -27,11 +27,13 @@
 
         private IContainer container;
         private readonly TimeKeeper timeKeeper;
+        private readonly ShutdownNotifier notifier;
 
-        public Startup(IContainer container, TimeKeeper timeKeeper)
+        public Startup(IContainer container, TimeKeeper timeKeeper, ShutdownNotifier notifier)
         {
             this.container = container;
             this.timeKeeper = timeKeeper;
+            this.notifier = notifier;
         }
 
         public void Configuration(IAppBuilder app)
@@ -40,7 +42,7 @@
 
             app.Map("/hystrix", b => b.UseHystrixDashboard());
 
-            app.Map("/hystrixstreamer", b => b.UseHystrixStreamer( timeKeeper));
+            app.Map("/hystrixstreamer", b => b.UseHystrixStreamer(timeKeeper, notifier));
 
             app.Map("/api", b =>
             {

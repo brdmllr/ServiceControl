@@ -1,7 +1,8 @@
 ﻿namespace Hystrix.MetricsEventStream
 {
     using System;
-    using System.Collections.Generic;
+    using System.Reactive.Linq;
+    using System.Reactive.Subjects;
     using System.Threading;
     using Netflix.Hystrix;
     using Netflix.Hystrix.CircuitBreaker;
@@ -11,10 +12,11 @@
     using Newtonsoft.Json.Linq;
     using ServiceControl.Infrastructure;
 
-    class HystrixMetricsSampler
+    class HystrixMetricsSampler: IDisposable
     {
         private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);
         private readonly TimeKeeper timeKeeper;
+        private Subject<string> subject = new Subject<string>();
 
         private Timer timer;
 
@@ -23,36 +25,33 @@
             this.timeKeeper = timeKeeper;
         }
 
-        public event EventHandler<SampleDataAvailableEventArgs> SampleDataAvailable;
+        public IObservable<string> SampleData => subject.AsObservable();
 
-        void DoWork()
+        private void DoWork()
         {
-            var data = new List<string>();
-
-            foreach (HystrixCommandMetrics commandMetrics in HystrixCommandMetrics.Instances)
+            if (!subject.HasObservers)
             {
-                data.Add(CreateCommandSampleData(commandMetrics));
+                return;
             }
 
-            foreach (HystrixThreadPoolMetrics threadPoolMetrics in HystrixThreadPoolMetrics.Instances)
+            foreach (var commandMetrics in HystrixCommandMetrics.Instances)
             {
-                data.Add(CreateThreadPoolSampleData(threadPoolMetrics));
+                subject.OnNext(CreateCommandSampleData(commandMetrics));
             }
 
-            EventHandler<SampleDataAvailableEventArgs> handler = SampleDataAvailable;
-            if (handler != null)
+            foreach (var threadPoolMetrics in HystrixThreadPoolMetrics.Instances)
             {
-                handler(this, new SampleDataAvailableEventArgs(data));
+                subject.OnNext(CreateThreadPoolSampleData(threadPoolMetrics));
             }
         }
 
         private static string CreateCommandSampleData(HystrixCommandMetrics commandMetrics)
         {
-            IHystrixCircuitBreaker circuitBreaker = HystrixCircuitBreakerFactory.GetInstance(commandMetrics.CommandKey);
-            HealthCounts healthCounts = commandMetrics.GetHealthCounts();
-            IHystrixCommandProperties commandProperties = commandMetrics.Properties;
+            var circuitBreaker = HystrixCircuitBreakerFactory.GetInstance(commandMetrics.CommandKey);
+            var healthCounts = commandMetrics.GetHealthCounts();
+            var commandProperties = commandMetrics.Properties;
 
-            JObject data = new JObject(
+            var data = new JObject(
                 new JProperty("type", "HystrixCommand"),
                 new JProperty("name", commandMetrics.CommandKey.Name),
                 new JProperty("group", commandMetrics.CommandGroup.Name),
@@ -122,9 +121,9 @@
 
         private static string CreateThreadPoolSampleData(HystrixThreadPoolMetrics threadPoolMetrics)
         {
-            IHystrixThreadPoolProperties properties = threadPoolMetrics.Properties;
+            var properties = threadPoolMetrics.Properties;
 
-            JObject data = new JObject(
+            var data = new JObject(
                 new JProperty("type", "HystrixThreadPool"),
                 new JProperty("name", threadPoolMetrics.ThreadPoolKey.Name),
                 new JProperty("currentTime", GetCurrentTimeForJavascript()),
@@ -158,6 +157,11 @@
         public void Stop()
         {
             timeKeeper.Release(timer);
+        }
+
+        public void Dispose()
+        {
+            Stop();
         }
     }
 }

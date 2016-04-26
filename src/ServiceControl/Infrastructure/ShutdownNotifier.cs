@@ -7,9 +7,9 @@
     {
         CancellationTokenSource source = new CancellationTokenSource();
 
-        public void Register(Action callback)
+        public CancellationTokenRegistration Register(Action callback)
         {
-            source.Token.Register(callback);
+            return source.Token.Register(callback);
         }
 
         public void Dispose()
