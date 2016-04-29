@@ -71,8 +71,8 @@
 					data.reportingHosts = 1;
 				}
 				
-				if(data && data.type == 'HystrixCommand') {
-					if (data.deleteData == 'true') {
+				if(data.type === 'HystrixCommand') {
+					if (data.deleteData === 'true') {
 						deleteCircuit(data.name);
 					} else {
 						displayCircuit(data);

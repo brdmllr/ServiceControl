@@ -206,6 +206,7 @@ namespace Particular.ServiceControl
         public void Stop()
         {
             notifier.Dispose();
+            Netflix.Hystrix.Hystrix.Reset(TimeSpan.FromSeconds(2));
             Bus.Dispose();
             timeKeeper.Dispose();
             webApp.Dispose();

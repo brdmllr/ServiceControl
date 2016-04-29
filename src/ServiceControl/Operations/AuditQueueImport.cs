@@ -39,7 +39,7 @@
 
             public Importer(TransportMessage message, IBuilder builder, PipelineExecutor pipelineExecutor, LogicalMessageFactory logicalMessageFactory, ISendMessages forwarder) : base(HystrixCommandSetter.WithGroupKey("Importer")
                 .AndCommandKey("AuditQueue")
-                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationThreadTimeout(TimeSpan.FromSeconds(30))))
+                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationStrategy(ExecutionIsolationStrategy.Semaphore).WithExecutionIsolationSemaphoreMaxConcurrentRequests(1000)))
             {
                 this.message = message;
                 this.builder = builder;

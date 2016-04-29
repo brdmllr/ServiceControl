@@ -46,8 +46,9 @@
             var taskCompletionResult = new TaskCompletionSource<int>();
             var token = CancellationTokenSource.CreateLinkedTokenSource(shutdownTokenSource.Token, owinCallCancelled).Token;
 
-            using (sampler.SampleData.ObserveOn(DefaultScheduler.Instance).Subscribe(data => metricsDataQueue.Enqueue(data)))
-            using (var task = Task.Run(() => SendStats(context, token), CancellationToken.None))
+            var sendInterval = GetSendInterval(context);
+            using (sampler.SampleData.Sample(sendInterval).ObserveOn(DefaultScheduler.Instance).Subscribe(data => metricsDataQueue.Enqueue(data)))
+            using (var task = Task.Run(() => SendStats(context, token, sendInterval), CancellationToken.None))
             using (token.Register(() => CleanUp(taskCompletionResult, task)))
             {
                 await taskCompletionResult.Task;
@@ -55,7 +56,7 @@
             }
         }
 
-        private void SendStats(IOwinContext context, CancellationToken cancellationToken)
+        private void SendStats(IOwinContext context, CancellationToken cancellationToken, TimeSpan sendInterval)
         {
             context.Response.Headers["Content-Type"] = "text/event-stream;charset=UTF-8";
             context.Response.Headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate";
@@ -77,7 +78,7 @@
                         continue;
                     }
 
-                    SpinWait.SpinUntil(() => cancellationToken.IsCancellationRequested, GetSendInterval(context));
+                    SpinWait.SpinUntil(() => cancellationToken.IsCancellationRequested, sendInterval);
                 }
             }
         }

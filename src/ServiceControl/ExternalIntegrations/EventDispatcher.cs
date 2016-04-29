@@ -113,7 +113,7 @@
 
             public Publisher(IBus bus, object eventToDispatch, ILog log) : base(HystrixCommandSetter.WithGroupKey("ThirdPartyIntegration")
                 .AndCommandKey("EventDispatcher")
-                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationThreadTimeout(TimeSpan.FromSeconds(30))))
+                .AndCommandPropertiesDefaults(new HystrixCommandPropertiesSetter().WithCircuitBreakerEnabled(false).WithExecutionIsolationStrategy(ExecutionIsolationStrategy.Semaphore).WithExecutionIsolationSemaphoreMaxConcurrentRequests(1000)))
             {
                 this.bus = bus;
                 this.eventToDispatch = eventToDispatch;

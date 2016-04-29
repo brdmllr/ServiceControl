@@ -6,7 +6,6 @@
     using System.Threading;
     using Netflix.Hystrix;
     using Netflix.Hystrix.CircuitBreaker;
-    using Netflix.Hystrix.ThreadPool;
     using Netflix.Hystrix.Util;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
@@ -17,7 +16,6 @@
         private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);
         private readonly TimeKeeper timeKeeper;
         private Subject<string> subject = new Subject<string>();
-
         private Timer timer;
 
         public HystrixMetricsSampler(TimeKeeper timeKeeper)
@@ -37,11 +35,6 @@
             foreach (var commandMetrics in HystrixCommandMetrics.Instances)
             {
                 subject.OnNext(CreateCommandSampleData(commandMetrics));
-            }
-
-            foreach (var threadPoolMetrics in HystrixThreadPoolMetrics.Instances)
-            {
-                subject.OnNext(CreateThreadPoolSampleData(threadPoolMetrics));
             }
         }
 
@@ -114,31 +107,6 @@
                 new JProperty("propertyValue_metricsRollingStatisticalWindowInMilliseconds", commandProperties.MetricsRollingStatisticalWindowInMilliseconds.Get()),
                 new JProperty("propertyValue_requestCacheEnabled", commandProperties.RequestCacheEnabled.Get()),
                 new JProperty("propertyValue_requestLogEnabled", commandProperties.RequestLogEnabled.Get()),
-                new JProperty("reportingHosts", 1));
-
-            return data.ToString(Formatting.None);
-        }
-
-        private static string CreateThreadPoolSampleData(HystrixThreadPoolMetrics threadPoolMetrics)
-        {
-            var properties = threadPoolMetrics.Properties;
-
-            var data = new JObject(
-                new JProperty("type", "HystrixThreadPool"),
-                new JProperty("name", threadPoolMetrics.ThreadPoolKey.Name),
-                new JProperty("currentTime", GetCurrentTimeForJavascript()),
-                new JProperty("currentActiveCount", threadPoolMetrics.CurrentActiveCount),
-                new JProperty("currentCompletedTaskCount", threadPoolMetrics.CurrentCompletedTaskCount),
-                new JProperty("currentCorePoolSize", threadPoolMetrics.CurrentCorePoolSize),
-                new JProperty("currentLargestPoolSize", threadPoolMetrics.CurrentLargestPoolSize),
-                new JProperty("currentMaximumPoolSize", threadPoolMetrics.CurrentMaximumPoolSize),
-                new JProperty("currentPoolSize", threadPoolMetrics.CurrentPoolSize),
-                new JProperty("currentQueueSize", threadPoolMetrics.CurrentQueueSize),
-                new JProperty("currentTaskCount", threadPoolMetrics.CurrentTaskCount),
-                new JProperty("rollingCountThreadsExecuted", threadPoolMetrics.RollingCountThreadsExecuted),
-                new JProperty("rollingMaxActiveThreads", threadPoolMetrics.RollingMaxActiveThreads),
-                new JProperty("propertyValue_queueSizeRejectionThreshold", properties.QueueSizeRejectionThreshold.Get()),
-                new JProperty("propertyValue_metricsRollingStatisticalWindowInMilliseconds", properties.MetricsRollingStatisticalWindowInMilliseconds.Get()),
                 new JProperty("reportingHosts", 1));
 
             return data.ToString(Formatting.None);
