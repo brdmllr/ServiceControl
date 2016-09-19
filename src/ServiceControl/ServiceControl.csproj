@@ -509,6 +509,7 @@
     <Compile Include="Operations\FailedAuditImport.cs" />
     <Compile Include="Operations\FailedErrorImport.cs" />
     <Compile Include="Operations\IEnrichImportedMessages.cs" />
+    <Compile Include="Operations\IMonitorImportBatches.cs" />
     <Compile Include="Operations\ImportEnricher.cs" />
     <Compile Include="Operations\LicenseStatusKeeper.cs" />
     <Compile Include="Operations\Audit\ProcessAudits.cs" />

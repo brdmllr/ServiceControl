@@ -46,7 +46,7 @@
             messageBodyFactory = new MessageBodyFactory();
             errorIngestionCache = new ErrorIngestionCache(settings);
             errorMessageBodyStoragePolicy = new ErrorMessageBodyStoragePolicy(settings);
-            processErrors = new ProcessErrors(store, errorIngestionCache, new PatchCommandDataFactory(builder.BuildAll<IFailedMessageEnricher>().ToArray(), builder.BuildAll<IEnrichImportedMessages>().Where(x => x.EnrichErrors).ToArray(), errorMessageBodyStoragePolicy, messageBodyStore), bus, criticalError);
+            processErrors = new ProcessErrors(store, errorIngestionCache, new PatchCommandDataFactory(builder.BuildAll<IFailedMessageEnricher>().ToArray(), builder.BuildAll<IEnrichImportedMessages>().Where(x => x.EnrichErrors).ToArray(), errorMessageBodyStoragePolicy, messageBodyStore), bus, criticalError, builder.BuildAll<IMonitorImportBatches>());
         }
 
         public bool Handle(TransportMessage message)

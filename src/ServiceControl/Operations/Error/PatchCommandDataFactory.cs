@@ -104,11 +104,15 @@
             }
         }
 
-        public PatchCommandData Create(Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, out FailureDetails failureDetails, out string uniqueId)
+        public PatchCommandData Create(Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, out FailureDetails failureDetails, out string uniqueId, out Dictionary<string, object> metadata)
         {
-            var metadata = new Dictionary<string, object>();
+            metadata = new Dictionary<string, object>();
 
-            DictionaryExtensions.CheckIfKeyExists(Headers.MessageId, headers, messageId => metadata.Add("MessageId", messageId));
+            string messageId;
+            if (headers.TryGetValue(Headers.MessageId, out messageId))
+            {
+                metadata.Add("MessageId", messageId);
+            }
 
             // NOTE: Pulled out of the TransportMessage class
             var intent = (MessageIntentEnum)0;

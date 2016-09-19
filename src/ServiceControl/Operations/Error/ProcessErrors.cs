@@ -28,15 +28,17 @@
         private volatile bool stop;
         private readonly Meter meter = Metric.Meter("Error messages processed", Unit.Custom("Messages"));
         private readonly CriticalError criticalError;
+        private readonly IEnumerable<IMonitorImportBatches> batchMonitors;
         private RepeatedFailuresOverTimeCircuitBreaker breaker;
 
-        public ProcessErrors(IDocumentStore store, ErrorIngestionCache errorIngestionCache, PatchCommandDataFactory patchCommandDataFactory, IBus bus, CriticalError criticalError)
+        public ProcessErrors(IDocumentStore store, ErrorIngestionCache errorIngestionCache, PatchCommandDataFactory patchCommandDataFactory, IBus bus, CriticalError criticalError, IEnumerable<IMonitorImportBatches> batchMonitors)
         {
             this.store = store;
             this.errorIngestionCache = errorIngestionCache;
             this.patchCommandDataFactory = patchCommandDataFactory;
             this.bus = bus;
             this.criticalError = criticalError;
+            this.batchMonitors = batchMonitors;
         }
 
         public void Start()
@@ -75,6 +77,7 @@
             do
             {
                 var processedFiles = new List<string>(BATCH_SIZE);
+                var batchMetadata = new List<Dictionary<string, object>>(BATCH_SIZE);
                 var patches = new List<PatchCommandData>();
                 var events = new List<object>();
 
@@ -93,9 +96,11 @@
                     {
                         FailureDetails failureDetails;
                         string uniqueId;
-                        var processedMessage = patchCommandDataFactory.Create(headers, recoverable, bodyStorageClaimsCheck, out failureDetails, out uniqueId);
+                        Dictionary<string, object> messageMetadata;
+                        var processedMessage = patchCommandDataFactory.Create(headers, recoverable, bodyStorageClaimsCheck, out failureDetails, out uniqueId, out messageMetadata);
 
                         patches.Add(processedMessage);
+                        batchMetadata.Add(messageMetadata);
                         processedFiles.Add(entry);
 
                         string failedMessageId;
@@ -123,6 +128,14 @@
                 if (patches.Count > 0)
                 {
                     await store.AsyncDatabaseCommands.BatchAsync(patches).ConfigureAwait(false);
+                }
+
+                if (batchMetadata.Count > 0)
+                {
+                    foreach (var batchMonitor in batchMonitors)
+                    {
+                        batchMonitor.Accept(batchMetadata);
+                    }
                 }
 
                 if (events.Count > 0)

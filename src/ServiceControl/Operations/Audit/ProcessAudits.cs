@@ -26,15 +26,17 @@
         AuditIngestionCache auditIngestionCache;
         ProcessedMessageFactory processedMessageFactory;
         private readonly CriticalError criticalError;
+        private readonly IEnumerable<IMonitorImportBatches> batchMonitors;
         private RepeatedFailuresOverTimeCircuitBreaker breaker;
 
-        public ProcessAudits(IDocumentStore store, AuditIngestionCache auditIngestionCache, ProcessedMessageFactory processedMessageFactory, CriticalError criticalError)
+        public ProcessAudits(IDocumentStore store, AuditIngestionCache auditIngestionCache, ProcessedMessageFactory processedMessageFactory, CriticalError criticalError, IEnumerable<IMonitorImportBatches> batchMonitors)
         {
             this.store = store;
             this.auditIngestionCache = auditIngestionCache;
 
             this.processedMessageFactory = processedMessageFactory;
             this.criticalError = criticalError;
+            this.batchMonitors = batchMonitors;
         }
 
         public void Start()
@@ -74,6 +76,7 @@
             {
                 var processedFiles = new List<string>(BATCH_SIZE);
                 var bulkInsertLazy = new Lazy<BulkInsertOperation>(() => store.BulkInsert());
+                var batchMetadata = new List<Dictionary<string, object>>(BATCH_SIZE);
 
                 foreach (var entry in auditIngestionCache.GetBatch(BATCH_SIZE))
                 {
@@ -90,6 +93,8 @@
                         var processedMessage = processedMessageFactory.Create(headers);
                         processedMessageFactory.AddBodyDetails(processedMessage, bodyStorageClaimsCheck);
 
+                        batchMetadata.Add(processedMessage.MessageMetadata);
+
                         bulkInsertLazy.Value.Store(processedMessage);
 
                         processedFiles.Add(entry);
@@ -99,6 +104,11 @@
                 if (processedFiles.Count > 0)
                 {
                     await bulkInsertLazy.Value.DisposeAsync().ConfigureAwait(false);
+
+                    foreach (var batchMonitor in batchMonitors)
+                    {
+                        batchMonitor.Accept(batchMetadata);
+                    }
 
                     foreach (var file in processedFiles)
                     {
