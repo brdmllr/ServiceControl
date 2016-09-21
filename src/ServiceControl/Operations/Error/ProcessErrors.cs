@@ -77,7 +77,6 @@
             do
             {
                 var processedFiles = new List<string>(BATCH_SIZE);
-                var batchMetadata = new List<Dictionary<string, object>>(BATCH_SIZE);
                 var patches = new List<PatchCommandData>();
                 var events = new List<object>();
 
@@ -100,7 +99,12 @@
                         var processedMessage = patchCommandDataFactory.Create(headers, recoverable, bodyStorageClaimsCheck, out failureDetails, out uniqueId, out messageMetadata);
 
                         patches.Add(processedMessage);
-                        batchMetadata.Add(messageMetadata);
+
+                        foreach (var batchMonitor in batchMonitors)
+                        {
+                            batchMonitor.Accept(messageMetadata);
+                        }
+
                         processedFiles.Add(entry);
 
                         string failedMessageId;
@@ -128,13 +132,9 @@
                 if (patches.Count > 0)
                 {
                     await store.AsyncDatabaseCommands.BatchAsync(patches).ConfigureAwait(false);
-                }
-
-                if (batchMetadata.Count > 0)
-                {
                     foreach (var batchMonitor in batchMonitors)
                     {
-                        batchMonitor.Accept(batchMetadata);
+                        batchMonitor.FinalizeBatch();
                     }
                 }
 

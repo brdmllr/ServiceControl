@@ -47,9 +47,6 @@
 
         class Pre45EndpointStrategy : IEndpointDetectionStrategy, IEqualityComparer<EndpointDetails>
         {
-            public IEnumerable<EndpointDetails> FindUniqueMatchingEndpoints(IEnumerable<EndpointDetails> input)
-                => input.Where(x => x.HostId == Guid.Empty).Distinct(this);
-
             public Guid MakeEndpointId(EndpointDetails endpointDetails)
                 // since for pre 4.5 endpoints we wont have a hostid then fake one
                 => DeterministicGuid.MakeId(endpointDetails.Name, endpointDetails.Host);
@@ -62,6 +59,7 @@
                         DetectedAt = DateTime.UtcNow
                     };
 
+            public bool Matches(EndpointDetails endpoint) => endpoint.HostId == Guid.Empty;
 
             public bool Equals(EndpointDetails x, EndpointDetails y) => x.Name == y.Name && x.Host == y.Host;
 
@@ -77,9 +75,6 @@
 
         class Post45EndpointStrategy : IEndpointDetectionStrategy, IEqualityComparer<EndpointDetails>
         {
-            public IEnumerable<EndpointDetails> FindUniqueMatchingEndpoints(IEnumerable<EndpointDetails> input)
-                => input.Where(x => x.HostId != Guid.Empty).Distinct(this);
-
             public Guid MakeEndpointId(EndpointDetails endpointDetails)
                 => DeterministicGuid.MakeId(endpointDetails.Name, endpointDetails.HostId.ToString());
 
@@ -90,6 +85,8 @@
                         Endpoint = endpoint,
                         DetectedAt = DateTime.UtcNow
                     };
+
+            public bool Matches(EndpointDetails endpoint) => endpoint.HostId != Guid.Empty;
 
             public bool Equals(EndpointDetails x, EndpointDetails y) => x.Name == y.Name && x.HostId == y.HostId;
 
@@ -105,9 +102,9 @@
 
         interface IEndpointDetectionStrategy
         {
-            IEnumerable<EndpointDetails> FindUniqueMatchingEndpoints(IEnumerable<EndpointDetails> input);
             Guid MakeEndpointId(EndpointDetails endpointDetails);
             RegisterEndpoint CreateRegisterMessage(Guid endpointInstanceId, EndpointDetails endpoint);
+            bool Matches(EndpointDetails endpoint);
         }
 
         class DetectNewEndpointsImportBatchMonitor : IMonitorImportBatches
@@ -116,49 +113,67 @@
             {
                 this.bus = bus;
                 this.knownEndpointsCache = knownEndpointsCache;
+
+                pre45EndpointStrategy = new Pre45EndpointStrategy();
+                pre45Endpoints = new HashSet<EndpointDetails>(pre45EndpointStrategy);
+
+                post45EndpointStrategy = new Post45EndpointStrategy();
+                post45Endpoints = new HashSet<EndpointDetails>(post45EndpointStrategy);
             }
 
-            public void Accept(IEnumerable<Dictionary<string, object>> batch)
+            public void Accept(Dictionary<string, object> metadata)
             {
-                var endpoints = ExtractEndpoints(batch).ToArray();
-
-                foreach (var message in DetectNewEndpoints(endpoints, post45EndpointStrategy))
-                {
-                    bus.SendLocal(message);
-                }
-
-                foreach (var message in DetectNewEndpoints(endpoints, pre45EndpointStrategy))
-                {
-                    bus.SendLocal(message);
-                }
+                Add(metadata, "SendingEndpoint");
+                Add(metadata, "ReceivingEndpoint");
             }
 
-            private IEnumerable<EndpointDetails> ExtractEndpoints(IEnumerable<IDictionary<string, object>> batch)
+            private void Add(Dictionary<string, object> metadata, string key)
             {
-                foreach (var messageMetadata in batch)
+                object value;
+                if (metadata.TryGetValue(key, out value))
                 {
-                    object endpointDetails;
-                    if (messageMetadata.TryGetValue("SendingEndpoint", out endpointDetails))
+                    var endpoint = (EndpointDetails)value;
+                    if (post45EndpointStrategy.Matches(endpoint))
                     {
-                        yield return (EndpointDetails)endpointDetails;
+                        post45Endpoints.Add(endpoint);
                     }
-                    if (messageMetadata.TryGetValue("ReceivingEndpoint", out endpointDetails))
+                    else if (pre45EndpointStrategy.Matches(endpoint))
                     {
-                        yield return (EndpointDetails)endpointDetails;
+                        pre45Endpoints.Add(endpoint);
                     }
                 }
             }
 
-            private IEnumerable<RegisterEndpoint> DetectNewEndpoints(EndpointDetails[] endpoints, IEndpointDetectionStrategy strategy)
-                => from endpoint in strategy.FindUniqueMatchingEndpoints(endpoints)
+            public void FinalizeBatch()
+            {
+                foreach (var message in CreateMessages(pre45Endpoints, pre45EndpointStrategy))
+                {
+                    bus.SendLocal(message);
+                }
+
+                foreach (var message in CreateMessages(post45Endpoints, post45EndpointStrategy))
+                {
+                    bus.SendLocal(message);
+                }
+
+                post45Endpoints.Clear();
+                pre45Endpoints.Clear();
+            }
+
+            private IEnumerable<RegisterEndpoint> CreateMessages(HashSet<EndpointDetails> endpoints, IEndpointDetectionStrategy strategy)
+                => from endpoint in endpoints
                    let endpointInstanceId = strategy.MakeEndpointId(endpoint)
                    where knownEndpointsCache.TryAdd(endpointInstanceId)
                    select strategy.CreateRegisterMessage(endpointInstanceId, endpoint);
 
             private IBus bus;
             private KnownEndpointsCache knownEndpointsCache;
-            private Pre45EndpointStrategy pre45EndpointStrategy = new Pre45EndpointStrategy();
-            private Post45EndpointStrategy post45EndpointStrategy = new Post45EndpointStrategy();
+
+            private Pre45EndpointStrategy pre45EndpointStrategy;
+            private Post45EndpointStrategy post45EndpointStrategy;
+
+            private HashSet<EndpointDetails> pre45Endpoints;
+            private HashSet<EndpointDetails> post45Endpoints;
         }
     }
 }

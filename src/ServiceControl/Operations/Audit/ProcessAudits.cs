@@ -76,7 +76,6 @@
             {
                 var processedFiles = new List<string>(BATCH_SIZE);
                 var bulkInsertLazy = new Lazy<BulkInsertOperation>(() => store.BulkInsert());
-                var batchMetadata = new List<Dictionary<string, object>>(BATCH_SIZE);
 
                 foreach (var entry in auditIngestionCache.GetBatch(BATCH_SIZE))
                 {
@@ -93,7 +92,10 @@
                         var processedMessage = processedMessageFactory.Create(headers);
                         processedMessageFactory.AddBodyDetails(processedMessage, bodyStorageClaimsCheck);
 
-                        batchMetadata.Add(processedMessage.MessageMetadata);
+                        foreach (var batchMonitor in batchMonitors)
+                        {
+                            batchMonitor.Accept(processedMessage.MessageMetadata);
+                        }
 
                         bulkInsertLazy.Value.Store(processedMessage);
 
@@ -107,7 +109,7 @@
 
                     foreach (var batchMonitor in batchMonitors)
                     {
-                        batchMonitor.Accept(batchMetadata);
+                        batchMonitor.FinalizeBatch();
                     }
 
                     foreach (var file in processedFiles)

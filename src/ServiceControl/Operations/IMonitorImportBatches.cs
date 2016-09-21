@@ -4,6 +4,7 @@ namespace ServiceControl.Operations
 
     public interface IMonitorImportBatches
     {
-        void Accept(IEnumerable<Dictionary<string, object>> batch);
+        void Accept(Dictionary<string, object> metadata);
+        void FinalizeBatch();
     }
 }
