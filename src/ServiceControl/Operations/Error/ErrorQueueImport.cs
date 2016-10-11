@@ -98,12 +98,12 @@
             {
                 var cmds = new ICommandData[2];
                 cmds[0] = recoverabilityCommand;
-                cmds[1] = patchCommandDataFactory.Patch(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails);
+                cmds[1] = patchCommandDataFactory.Patch(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, message.Body, failureDetails);
                 optimizer.Write(cmds);
             }
             else // New failure
             {
-                optimizer.Write(patchCommandDataFactory.New(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails));
+                optimizer.Write(patchCommandDataFactory.New(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, message.Body, failureDetails));
             }
 
             bus.Publish(messageFailed);

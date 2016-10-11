@@ -62,7 +62,7 @@
             return headers.TryGetValue(Headers.ProcessingEnded, out processedAt) ? DateTimeExtensions.ToUtcDateTime(processedAt) : DateTime.UtcNow;
         }
 
-        public void AddBodyDetails(ProcessedMessage processedMessage, ClaimsCheck bodyStorageClaimsCheck)
+        public void AddBodyDetails(ProcessedMessage processedMessage, ClaimsCheck bodyStorageClaimsCheck, byte[] messageBody)
         {
             WriteMetadata(processedMessage.MessageMetadata, bodyStorageClaimsCheck.Metadata);
 
@@ -72,13 +72,7 @@
             }
             else if (auditBodyStoragePolicy.ShouldIndex(bodyStorageClaimsCheck.Metadata))
             {
-                byte[] messageBody;
-                MessageBodyMetadata metadata;
-
-                if (messageBodyStore.TryGet(BodyStorageTags.Audit, bodyStorageClaimsCheck.Metadata.MessageId, out messageBody, out metadata))
-                {
-                    processedMessage.MessageMetadata.Add("Body", Encoding.UTF8.GetString(messageBody));
-                }
+                processedMessage.MessageMetadata.Add("Body", Encoding.UTF8.GetString(messageBody));
             }
         }
 

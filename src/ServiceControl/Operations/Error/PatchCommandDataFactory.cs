@@ -56,7 +56,7 @@
             messageMeta.Add("BodyUrl", $"/messages/{bodyMeta.MessageId}/body_v2");
         }
 
-        void AddBodyDetails(Dictionary<string, object> metadata, ClaimsCheck bodyStorageClaimsCheck)
+        void AddBodyDetails(Dictionary<string, object> metadata, ClaimsCheck bodyStorageClaimsCheck, byte[] messageBody)
         {
             WriteMetadata(metadata, bodyStorageClaimsCheck.Metadata);
 
@@ -66,17 +66,11 @@
             }
             else if (bodyStoragePolicy.ShouldIndex(bodyStorageClaimsCheck.Metadata))
             {
-                byte[] messageBody;
-                MessageBodyMetadata _;
-
-                if (messageBodyStore.TryGet(BodyStorageTags.ErrorPersistent, bodyStorageClaimsCheck.Metadata.MessageId, out messageBody, out _))
-                {
-                    metadata.Add("Body", Encoding.UTF8.GetString(messageBody));
-                }
+                metadata.Add("Body", Encoding.UTF8.GetString(messageBody));
             }
         }
 
-        public FailedMessage New(string uniqueId, Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, FailureDetails failureDetails)
+        public FailedMessage New(string uniqueId, Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, byte[] messageBody, FailureDetails failureDetails)
         {
             var groups = new List<FailedMessage.FailureGroup>();
 
@@ -111,7 +105,7 @@
             string replyToAddress;
             headers.TryGetValue(Headers.ReplyToAddress, out replyToAddress);
 
-            AddBodyDetails(metadata, bodyStorageClaimsCheck);
+            AddBodyDetails(metadata, bodyStorageClaimsCheck, messageBody);
 
             return new FailedMessage
             {
@@ -137,7 +131,7 @@
             };
         }
 
-        public PatchCommandData Patch(string uniqueId, Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, FailureDetails failureDetails)
+        public PatchCommandData Patch(string uniqueId, Dictionary<string, string> headers, bool recoverable, ClaimsCheck bodyStorageClaimsCheck, byte[] messageBody, FailureDetails failureDetails)
         {
             var metadata = new Dictionary<string, object>();
 
@@ -173,7 +167,7 @@
             string replyToAddress;
             headers.TryGetValue(Headers.ReplyToAddress, out replyToAddress);
 
-            AddBodyDetails(metadata, bodyStorageClaimsCheck);
+            AddBodyDetails(metadata, bodyStorageClaimsCheck, messageBody);
 
             return new PatchCommandData
             {

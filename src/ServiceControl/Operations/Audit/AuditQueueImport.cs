@@ -119,7 +119,7 @@
 
             var processedMessage = processedMessageFactory.Create(message.Headers);
 
-            processedMessageFactory.AddBodyDetails(processedMessage, claimCheck);
+            processedMessageFactory.AddBodyDetails(processedMessage, claimCheck, message.Body);
             
             optimizer.Write(processedMessage);
         }
