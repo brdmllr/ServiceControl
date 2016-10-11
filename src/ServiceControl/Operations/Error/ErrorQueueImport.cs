@@ -19,8 +19,6 @@
     using ServiceBus.Management.Infrastructure.Settings;
     using ServiceControl.Contracts.MessageFailures;
     using ServiceControl.Contracts.Operations;
-    using ServiceControl.EventLog;
-    using ServiceControl.EventLog.Definitions;
     using ServiceControl.Infrastructure;
     using ServiceControl.MessageFailures.Handlers;
     using ServiceControl.Operations.BodyStorage;
@@ -40,15 +38,12 @@
         private readonly IMessageBodyStore messageBodyStore;
         private SatelliteImportFailuresHandler satelliteImportFailuresHandler;
         private readonly Timer timer = Metric.Timer("Error messages dequeue", Unit.Custom("Messages"));
-        //private ProcessErrors processErrors;
         private MessageBodyFactory messageBodyFactory;
-        private ErrorIngestionCache errorIngestionCache;
         private ErrorMessageBodyStoragePolicy errorMessageBodyStoragePolicy;
         private RavenBatchOptimizer optimizer;
         private IDocumentStore store;
         private PatchCommandDataFactory patchCommandDataFactory;
         private RecoverabilityBatchCommandFactory recoverabilityBatchCommandFactory;
-        private EventLogBatchCommandFactory eventLogBatchCommandFactory;
         private IBus bus;
 
         public ErrorQueueImport(IBuilder builder, ISendMessages forwarder, IDocumentStore store, IBus bus, CriticalError criticalError, LoggingSettings loggingSettings, Settings settings, IMessageBodyStore messageBodyStore)
@@ -62,13 +57,9 @@
             this.settings = settings;
             this.messageBodyStore = messageBodyStore;
             messageBodyFactory = new MessageBodyFactory();
-            errorIngestionCache = new ErrorIngestionCache(settings);
             errorMessageBodyStoragePolicy = new ErrorMessageBodyStoragePolicy(settings);
             patchCommandDataFactory = new PatchCommandDataFactory(builder.BuildAll<IFailedMessageEnricher>().ToArray(), builder.BuildAll<IEnrichImportedMessages>().Where(x => x.EnrichErrors).ToArray(), errorMessageBodyStoragePolicy, messageBodyStore);
             recoverabilityBatchCommandFactory = new RecoverabilityBatchCommandFactory();
-
-            eventLogBatchCommandFactory = new EventLogBatchCommandFactory();
-            //processErrors = new ProcessErrors(store, errorIngestionCache, , bus, criticalError);
         }
 
         public bool Handle(TransportMessage message)
@@ -103,21 +94,17 @@
 
             var recoverabilityCommand = recoverabilityBatchCommandFactory.Create(message.Headers, messageFailed);
 
-            var cmds = new ICommandData[2];
-            var entities = new object[1];
             if (recoverabilityCommand != null) //Repeated failure
             {
+                var cmds = new ICommandData[2];
                 cmds[0] = recoverabilityCommand;
                 cmds[1] = patchCommandDataFactory.Patch(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails);
+                optimizer.Write(cmds);
             }
             else // New failure
             {
-                entities[0] = patchCommandDataFactory.New(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails);
+                optimizer.Write(patchCommandDataFactory.New(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails));
             }
-
-            //entities[1] = eventLogBatchCommandFactory.Create(uniqueMessageId, failureDetails);
-
-            optimizer.Write(entities, cmds);
 
             bus.Publish(messageFailed);
         }
@@ -137,21 +124,6 @@
                     };
                 }
                 return null;
-            }
-        }
-
-        class EventLogBatchCommandFactory
-        {
-            public EventLogItem Create(string failedMessageId, FailureDetails failureDetails)
-            {
-                var messageFailed = new MessageFailed
-                {
-                    EndpointId = Address.Parse(failureDetails.AddressOfFailingEndpoint).Queue,
-                    FailedMessageId = failedMessageId,
-                    FailureDetails = failureDetails
-                };
-
-                return new MessageFailedDefinition().Apply(Guid.NewGuid().ToString(), messageFailed);
             }
         }
 
@@ -209,7 +181,11 @@
                     Message = tm,
                 }, criticalError);
 
-            return receiver => { receiver.FailureManager = satelliteImportFailuresHandler; };
+            return receiver =>
+            {
+                receiver.FailureManager = satelliteImportFailuresHandler;
+                receiver.ChangeMaximumConcurrencyLevel(30);
+            };
         }
 
         bool TerminateIfForwardingQueueNotWritable()

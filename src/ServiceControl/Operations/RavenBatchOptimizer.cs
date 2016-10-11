@@ -52,7 +52,7 @@
                 {
                     Task.WaitAll(proccesses.ToArray());
                 }
-                catch (OperationCanceledException cancelled)
+                catch (OperationCanceledException)
                 {
                     // do nothing
                 }
@@ -92,7 +92,7 @@
         /// <summary>
         ///     Enqueue the entity to be stored and waits until it will be proccessed
         /// </summary>
-        public void Write(object[] entities, ICommandData[] commands)
+        public void Write(ICommandData[] commands)
         {
             _cts.Token.ThrowIfCancellationRequested();
             ManualResetEventSlim mres;
@@ -103,7 +103,6 @@
             var work = new Work
             {
                 Commands = commands,
-                Entities = entities,
                 Event = mres
             };
 
@@ -151,15 +150,9 @@
                             {
                                 session.Advanced.Store(p.Entity);
                             }
-                            else
+
+                            if (p.Commands != null && p.Commands.Length > 0)
                             {
-                                foreach (var entity in p.Entities)
-                                {
-                                    if (entity != null)
-                                    {
-                                        session.Advanced.Store(entity);
-                                    }
-                                }
                                 session.Advanced.Defer(p.Commands);
                             }
                         }
@@ -213,7 +206,6 @@
         {
             public object Entity;
             public ICommandData[] Commands { get; set; }
-            public object[] Entities { get; set; }
 
             public ManualResetEventSlim Event;
             public Exception Exception;

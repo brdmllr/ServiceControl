@@ -100,7 +100,11 @@
                 },
                 criticalError);
 
-            return receiver => { receiver.FailureManager = satelliteImportFailuresHandler; };
+            return receiver =>
+            {
+                receiver.FailureManager = satelliteImportFailuresHandler;
+                receiver.ChangeMaximumConcurrencyLevel(30);
+            };
         }
 
         public void Dispose()
