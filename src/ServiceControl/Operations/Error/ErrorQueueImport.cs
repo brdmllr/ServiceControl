@@ -47,13 +47,16 @@
         private RavenBatchOptimizer optimizer;
         private IDocumentStore store;
         private PatchCommandDataFactory patchCommandDataFactory;
+        private RecoverabilityBatchCommandFactory recoverabilityBatchCommandFactory;
         private EventLogBatchCommandFactory eventLogBatchCommandFactory;
+        private IBus bus;
 
         public ErrorQueueImport(IBuilder builder, ISendMessages forwarder, IDocumentStore store, IBus bus, CriticalError criticalError, LoggingSettings loggingSettings, Settings settings, IMessageBodyStore messageBodyStore)
         {
             this.store = store;
             this.builder = builder;
             this.forwarder = forwarder;
+            this.bus = bus;
             this.criticalError = criticalError;
             this.loggingSettings = loggingSettings;
             this.settings = settings;
@@ -62,6 +65,7 @@
             errorIngestionCache = new ErrorIngestionCache(settings);
             errorMessageBodyStoragePolicy = new ErrorMessageBodyStoragePolicy(settings);
             patchCommandDataFactory = new PatchCommandDataFactory(builder.BuildAll<IFailedMessageEnricher>().ToArray(), builder.BuildAll<IEnrichImportedMessages>().Where(x => x.EnrichErrors).ToArray(), errorMessageBodyStoragePolicy, messageBodyStore);
+            recoverabilityBatchCommandFactory = new RecoverabilityBatchCommandFactory();
 
             eventLogBatchCommandFactory = new EventLogBatchCommandFactory();
             //processErrors = new ProcessErrors(store, errorIngestionCache, , bus, criticalError);
@@ -90,10 +94,17 @@
             var metadata = messageBodyFactory.Create(uniqueMessageId, message);
             var claimCheck = messageBodyStore.Store(BodyStorageTags.ErrorPersistent, message.Body, metadata, errorMessageBodyStoragePolicy);
 
-            var recoverabilityCommand = recoverabilityBatchCommandFactory.Create(uniqueMessageId, message.Headers);
+            var messageFailed = new MessageFailed
+            {
+                FailedMessageId = uniqueMessageId,
+                FailureDetails = failureDetails,
+                EndpointId = Address.Parse(failureDetails.AddressOfFailingEndpoint).Queue
+            };
+
+            var recoverabilityCommand = recoverabilityBatchCommandFactory.Create(message.Headers, messageFailed);
 
             var cmds = new ICommandData[2];
-            var entities = new object[2];  
+            var entities = new object[1];
             if (recoverabilityCommand != null) //Repeated failure
             {
                 cmds[0] = recoverabilityCommand;
@@ -104,52 +115,28 @@
                 entities[0] = patchCommandDataFactory.New(uniqueMessageId, message.Headers, message.Recoverable, claimCheck, failureDetails);
             }
 
-            entities[1] = eventLogBatchCommandFactory.Create(uniqueMessageId, failureDetails);
+            //entities[1] = eventLogBatchCommandFactory.Create(uniqueMessageId, failureDetails);
 
             optimizer.Write(entities, cmds);
+
+            bus.Publish(messageFailed);
         }
 
         class RecoverabilityBatchCommandFactory
         {
-            private List<string> firstTimeFailureIds;
-            private List<string> repeatedFailureIds;
-
-            public RecoverabilityBatchCommandFactory(int batchSize)
-            {
-                firstTimeFailureIds = new List<string>(batchSize);
-                repeatedFailureIds = new List<string>(batchSize);
-            }
-
-            public void StartNewBatch()
-            {
-                firstTimeFailureIds.Clear();
-                repeatedFailureIds.Clear();
-            }
-
-            public ICommandData Create(string uniqueMessageId, Dictionary<string, string> headers)
+            public ICommandData Create(Dictionary<string, string> headers, MessageFailed messageFailed)
             {
                 string failedMessageId;
                 if (headers.TryGetValue("ServiceControl.Retry.UniqueMessageId", out failedMessageId))
                 {
-                    repeatedFailureIds.Add(failedMessageId);
+                    messageFailed.FailedMessageId = failedMessageId;
 
                     return new DeleteCommandData
                     {
                         Key = FailedMessageRetry.MakeDocumentId(failedMessageId)
                     };
                 }
-
-                firstTimeFailureIds.Add(uniqueMessageId);
                 return null;
-            }
-
-            public void CompleteBatch(IBus bus)
-            {
-                bus.Publish(new FailedMessagesImported
-                {
-                    NewFailureIds = firstTimeFailureIds.ToArray(),
-                    RepeatedFailureIds = repeatedFailureIds.ToArray()
-                });
             }
         }
 
