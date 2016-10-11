@@ -473,6 +473,7 @@
     <Compile Include="MessageFailures\Api\GetErrorById.cs" />
     <Compile Include="HeartbeatMonitoring\ApiModule.cs" />
     <Compile Include="MessageFailures\Handlers\ArchiveMessageHandler.cs" />
+    <Compile Include="Operations\Error\ErrorQueueImport.cs" />
     <Compile Include="Operations\Error\PatchCommandDataFactory.cs" />
     <Compile Include="MessageFailures\FailedMessage.cs" />
     <Compile Include="MessageFailures\Handlers\MessageFailureResolvedHandler.cs" />
@@ -498,7 +499,7 @@
     <Compile Include="Infrastructure\OWIN\Startup.cs" />
     <Compile Include="Infrastructure\Settings\Settings.cs" />
     <Compile Include="Infrastructure\Settings\SettingsReader.cs" />
-    <Compile Include="Operations\AuditQueueImport.cs" />
+    <Compile Include="Operations\Audit\AuditQueueImport.cs" />
     <Compile Include="CompositeViews\Messages\GetMessagesByConversation.cs" />
     <Compile Include="Bootstrapper.cs" />
     <Compile Include="Infrastructure\Extensions\NegotiatorExtensions.cs" />
@@ -508,7 +509,6 @@
     <Compile Include="Operations\BodyStorage\BodyStorageFeature.cs" />
     <Compile Include="Operations\BodyStorage\RavenAttachments\GetBodyById.cs" />
     <Compile Include="Operations\BodyStorage\RavenAttachments\RavenAttachmentsBodyStorage.cs" />
-    <Compile Include="Operations\ErrorQueueImport.cs" />
     <Compile Include="Operations\Error\ErrorIngestionCache.cs" />
     <Compile Include="Operations\Error\ErrorMessageBodyStoragePolicy.cs" />
     <Compile Include="Operations\ExceptionExtensions.cs" />
@@ -517,8 +517,7 @@
     <Compile Include="Operations\IEnrichImportedMessages.cs" />
     <Compile Include="Operations\ImportEnricher.cs" />
     <Compile Include="Operations\LicenseStatusKeeper.cs" />
-    <Compile Include="Operations\Audit\ProcessAudits.cs" />
-    <Compile Include="Operations\Error\ProcessErrors.cs" />
+    <Compile Include="Operations\RavenBatchOptimizer.cs" />
     <Compile Include="Operations\RepeatedFailuresOverTimeCircuitBreaker.cs" />
     <Compile Include="Operations\SatelliteImportFailuresHandler.cs" />
     <Compile Include="Operations\ImportFailureCircuitBreaker.cs" />

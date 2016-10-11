@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Threading;
     using Metrics;
     using NServiceBus;
     using NServiceBus.Logging;
@@ -16,6 +17,7 @@
     using ServiceBus.Management.Infrastructure.Settings;
     using ServiceControl.Operations.Audit;
     using ServiceControl.Operations.BodyStorage;
+    using Timer = Metrics.Timer;
 
     public class AuditQueueImport : IAdvancedSatellite, IDisposable
     {
@@ -28,12 +30,12 @@
         private readonly Settings settings;
         private readonly Timer timer = Metric.Timer("Audit messages dequeued", Unit.Custom("Messages"));
         private SatelliteImportFailuresHandler satelliteImportFailuresHandler;
-        private ProcessAudits processAudits;
 
         private MessageBodyFactory messageBodyFactory;
         private IMessageBodyStore messageBodyStore;
         private IMessageBodyStoragePolicy auditMessageBodyStoragePolicy;
-        private AuditIngestionCache auditIngestionCache;
+        private RavenBatchOptimizer optimizer;
+        private ProcessedMessageFactory processedMessageFactory;
 
         public AuditQueueImport(IBuilder builder, ISendMessages forwarder, IDocumentStore store, CriticalError criticalError, LoggingSettings loggingSettings, Settings settings, IMessageBodyStore messageBodyStore)
         {
@@ -46,15 +48,12 @@
             this.messageBodyStore = messageBodyStore;
 
             auditMessageBodyStoragePolicy = new AuditMessageBodyStoragePolicy(settings);
-            auditIngestionCache = new AuditIngestionCache(settings);
             messageBodyFactory = new MessageBodyFactory();
-
-            var processedMessageFactory = new ProcessedMessageFactory(
+            
+            processedMessageFactory = new ProcessedMessageFactory(
                 builder.BuildAll<IEnrichImportedMessages>().Where(x => x.EnrichAudits).ToArray(),
                 auditMessageBodyStoragePolicy,
                 messageBodyStore);
-
-            processAudits = new ProcessAudits(store, auditIngestionCache, processedMessageFactory, criticalError);
         }
 
         public bool Handle(TransportMessage message)
@@ -80,12 +79,12 @@
                 Logger.Info($"Audit import is now started, feeding audit messages from: {InputAddress}");
             }
 
-            processAudits.Start();
+            optimizer = new RavenBatchOptimizer(store, CancellationToken.None);
         }
 
         public void Stop()
         {
-            processAudits.Stop();
+            optimizer.Dispose();
         }
 
         public Address InputAddress => settings.AuditQueue;
@@ -114,7 +113,11 @@
             var metadata = messageBodyFactory.Create(message.Id, message);
             var claimCheck = messageBodyStore.Store(BodyStorageTags.Audit, message.Body, metadata, auditMessageBodyStoragePolicy);
 
-            auditIngestionCache.Write(message.Headers, claimCheck);
+            var processedMessage = processedMessageFactory.Create(message.Headers);
+
+            processedMessageFactory.AddBodyDetails(processedMessage, claimCheck);
+            
+            optimizer.Write(processedMessage);
         }
 
         private bool TerminateIfForwardingIsEnabledButQueueNotWritable()
